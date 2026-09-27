@@ -1,6 +1,6 @@
 import sqlite3
 
-DB_PATH = "riya.db"
+DB_PATH = "ira.db"
 
 def get_connection():
     """Creates a connection with foreign key support enabled."""

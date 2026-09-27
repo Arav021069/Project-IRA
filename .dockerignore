@@ -18,7 +18,7 @@ dist/
 # App Specific / Assets
 Riyagpt/
 gemini.md
-riya-ui/public/logo.mp4
+ira-ui/public/logo.mp4
 history.json
 *.db
 

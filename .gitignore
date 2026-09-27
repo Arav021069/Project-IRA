@@ -64,7 +64,7 @@ Thumbs.db
 docker-compose.override.yml
 
 # --- SQLite ---
-riya.db
+*.db
 *.db-journal
 *.db-wal
 *.db-shm

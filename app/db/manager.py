@@ -4,10 +4,10 @@ from pathlib import Path
 
 class DatabaseManager:
     def __init__(self, db_path=None):
-        self.db_folder = Path.home() / ".riya"
+        self.db_folder = Path.home() / ".ira"
         self.db_folder.mkdir(parents=True, exist_ok=True)
         
-        filename = db_path if db_path else "riya.db"
+        filename = db_path if db_path else "ira.db"
         self.db_path = str(self.db_folder / filename)
 
     def _get_connection(self):

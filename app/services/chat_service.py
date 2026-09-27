@@ -105,7 +105,9 @@ class ChatService:
                 # Step 3: Run the second completion to get the final text response
                 final_stream = self.ollama.chat(selected_model, updated_messages)
                 for chunk in final_stream:
-                    content = chunk.get("message", {}).get("content", "")
+                    print(f"[DEBUG] Final Stream Chunk: {chunk}")
+                    message = chunk.get("message", {})
+                    content = message.get("content", "")
                     if content:
                         full_response += content
                         yield content

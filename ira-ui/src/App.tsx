@@ -345,7 +345,7 @@ export default function App() {
                 </button>
               )}
               <div className="header-logo">
-                <span className="logo-accent">RIYA</span>GPT
+                <span className="logo-accent">IRA</span>GPT
               </div>
             </div>
             <div className="header-model-selector" onClick={() => setShowModal(true)}>

@@ -2,12 +2,12 @@ services:
   # Your Python Application
   app:
     build: .
-    container_name: Riyagpt-app
+    container_name: IRA-app
     ports:
       - "8000:8000"
     volumes:
       - .:/app
-      - /app/Riyagpt
+      - /app/IRAgpt
     environment:
       - OLLAMA_HOST=http://host.docker.internal:11434
     extra_hosts:

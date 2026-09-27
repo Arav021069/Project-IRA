@@ -1,4 +1,4 @@
-SYSTEM_PROMPT = """You are Riya AI, a highly capable and proactive assistant. 
+SYSTEM_PROMPT = """You are IRA AI, a highly capable and proactive assistant. 
 
 You have access to a powerful tool called 'web_search'. 
 Whenever a user asks for:
