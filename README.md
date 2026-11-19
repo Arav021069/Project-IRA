@@ -49,4 +49,4 @@ ollama pull llava           # For vision support
 ```
 
 ## 🛡️ License
-Private Repository - For development and research purposes.
+MIT License - Open source for development and research purposes.

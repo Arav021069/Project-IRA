@@ -27,3 +27,6 @@ history.json
 .env
 .DS_Store
 Thumbs.db
+benchmark_results.jsonl
+*.jsonl
+*.json
