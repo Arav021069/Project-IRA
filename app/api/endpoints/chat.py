@@ -56,7 +56,7 @@ async def chat_endpoint(request: ChatRequest):
         session_id = str(uuid.uuid4())
         session_service.create_new_session(session_id, user_message[:30] + "...")
 
-    session_service.save_message(session_id, "user", user_message)
+    # session_service.save_message(session_id, "user", user_message)
     return StreamingResponse(
         chat_service.stream_chat(user_message, session_id, selected_model),
         media_type="text/plain",

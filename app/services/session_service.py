@@ -23,3 +23,6 @@ class SessionService:
     def remove_session(self, session_id: str):
         """Deletes a session and all its associated messages."""
         self.db.delete_session(session_id)
+
+    def session_exists(self, session_id: str) -> bool:
+        return self.db.session_exists(session_id)

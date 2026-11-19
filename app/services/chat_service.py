@@ -1,8 +1,13 @@
 import json
 from typing import Generator
+import time
+
 from app.services.session_service import SessionService
 from core.ollama_service import OllamaService, OLLAMA_TOOLS, TOOL_REGISTRY
 from core.prompts import SYSTEM_PROMPT
+from concurrent.futures import ThreadPoolExecutor
+from core.benchmark_metrics import save_benchmark, elapsed_ms
+
 
 class ChatService:
     def __init__(self):
@@ -15,110 +20,237 @@ class ChatService:
                     selected_model: str,
                     image_base64=None
                     ) -> Generator[str, None, None]:
-
+        
         """
         Orchestrates the chat flow: 
         1. Retrieves history 
-        2. Initial LLM call 
-        3. Tool execution loop (if needed) 
-        4. Final response generation
+        2. Agentic Loop:
+           a. Call LLM
+           b. Stream content to user
+           c. If tool calls requested -> Execute in parallel
+           d. Append results to history and repeat
+        3. Final response saving
         """
-        full_response = ""
+        request_start = time.perf_counter()
+        first_response_token = None
+
+        model_calls = []
+        tool_calls_metrics = []
+        iterations = 0
+        max_iterations = 5  # Prevent infinite loops
+
+        full_response_chunks = []
+
+        # model_start = time.perf_counter()
+        # first_model_token = None
+        #
+        # model_metrics = {
+        #     "model_ttft_ms": None,
+        #     "total_duration_ms": None,
+        #     "load_duration_ms": None,
+        #     "prompt_eval_duration_ms": None,
+        #     "generation_duration_ms": None,
+        #     "prompt_eval_count": None,
+        #     "generation_token_count": None,
+        #     "tokens_per_second": None,
+        # }
+
         try:
-            # Fetch history from DB for context via SessionService
+            # 1. Initial Context Setup
             history_messages = self.session_service.get_session_history(session_id)
-            
-            # Inject System Prompt at the start of the conversation
             messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history_messages
-            # Add the current user message
-            # If there's an image, add it to the message'
+            self.session_service.save_message(session_id, "user", user_message)
+            
             if image_base64:
                 messages.append({
-                    "role": "user",
-                    "content": user_message,
+                    "role": "user", 
+                    "content": user_message, 
                     "images": [image_base64]
                 })
             else:
                 messages.append({
-                    "role": "user",
+                    "role": "user", 
                     "content": user_message
                 })
 
-            # Step 1: Call Ollama with tools enabled
-            stream = self.ollama.chat(selected_model, messages, tools=OLLAMA_TOOLS)
+            # START AGENTIC LOOP
+            while iterations < max_iterations:
+                iterations += 1
 
-            tool_calls_to_execute = []
-            last_assistant_msg = None
+                model_start = time.perf_counter()
+                first_model_token = None
 
-            for chunk in stream:
-                message = chunk.get("message", {})
-                
-                print(f"\n[DEBUG] Raw Model Response: {message}")
-                
-                # Capture tool calls requested by the model
-                if "tool_calls" in message and message["tool_calls"]:
-                    print(f"[DEBUG] Tool Call Detected: {message['tool_calls']}")
-                    tool_calls_to_execute.extend(message["tool_calls"])
-                    last_assistant_msg = message # Capture the exact message object
-                
-                content = message.get("content", "")
-                if content:
-                    full_response += content
-                    yield content
-
-            # Step 2: If the model decided to execute one or more tools
-            if tool_calls_to_execute:
-                # Use the actual message returned by the model, or fall back to a manual one
-                assistant_tool_msg = last_assistant_msg or {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": tool_calls_to_execute
+                model_metrics = {
+                    "model_ttft_ms": None,
+                    "total_duration_ms": None,
+                    "load_duration_ms": None,
+                    "prompt_eval_duration_ms": None,
+                    "generation_duration_ms": None,
+                    "prompt_eval_count": None,
+                    "generation_token_count": None,
+                    "tokens_per_second": None,
                 }
 
-                tool_messages = []
-                for tool_call in tool_calls_to_execute:
+                # A. Call LLM with current context and tools
+                stream = self.ollama.chat(selected_model, messages, tools=OLLAMA_TOOLS)
+                
+                tool_calls_to_execute = []
+                current_assistant_content = ""
+
+                # B. Process the stream
+                for chunk in stream:
+                    message = chunk.get("message", {})
+                    
+                    # Capture any content the AI wants to say before/during tool calls
+                    content = message.get("content", "")
+                    if content:
+                        now = time.perf_counter()
+
+                        if first_model_token is None:
+                            first_model_token = time.perf_counter()
+
+                            model_metrics["model_ttft_ms"] = elapsed_ms(
+                                model_start, now
+                            )
+
+                        if first_response_token is None:
+                            first_response_token = now
+
+                        current_assistant_content += content
+                        full_response_chunks.append(content) # Optimized append
+                        yield content
+
+                    if chunk.get("done"):
+                        model_metrics["total_duration_ms"] = (
+                                chunk.get("total_duration", 0) / 1_000_000
+                        )
+
+                        model_metrics["load_duration_ms"] = (
+                                chunk.get("load_duration", 0) / 1_000_000
+                        )
+
+                        model_metrics["prompt_eval_duration_ms"] = (
+                                chunk.get("prompt_eval_duration", 0) / 1_000_000
+                        )
+
+                        model_metrics["generation_duration_ms"] = (
+                                chunk.get("eval_duration", 0) / 1_000_000
+                        )
+
+                        model_metrics["prompt_eval_count"] = (
+                            chunk.get("prompt_eval_count", 0)
+                        )
+
+                        model_metrics["generation_token_count"] = (
+                            chunk.get("eval_count", 0)
+                        )
+
+                        duration = chunk.get("eval_duration", 0)
+
+                        if duration > 0:
+                            model_metrics["tokens_per_second"] = round(
+                                chunk.get("eval_count", 0) /
+                                (duration / 1_000_000_000),
+                                2
+                            )
+
+                        model_calls.append(model_metrics.copy())
+
+                    # Capture tool calls
+                    if "tool_calls" in message and message["tool_calls"]:
+                        tool_calls_to_execute.extend(message["tool_calls"])
+
+                # C. Decision Point: Does the AI need tools?
+                if not tool_calls_to_execute:
+                    # No tools needed, the AI has provided the final answer
+                    break 
+
+                # D. Tool Execution Phase
+                messages.append({
+                    "role": "assistant",
+                    "content": current_assistant_content,
+                    "tool_calls": tool_calls_to_execute
+                })
+
+                def run_tool(tool_call):
                     func_info = tool_call.get("function", {})
                     func_name = func_info.get("name")
                     func_args = func_info.get("arguments", {})
 
-                    if func_name in TOOL_REGISTRY:
-                        try:
-                            # Execute the tool with its arguments
-                            result = TOOL_REGISTRY[func_name](**func_args)
-                            print(f"[DEBUG] Tool {func_name} returned: {result}")
-                        except Exception as e:
-                            result = f"Error executing tool {func_name}: {str(e)}"
-                            print(f"[DEBUG] Tool {func_name} crashed: {result}")
-                    else:
-                        result = f"Error: Tool '{func_name}' is not registered."
-                        print(f"[DEBUG] {result}")
+                    tool_start = time.perf_counter()
 
-                    tool_messages.append({
-                        "role": "tool",
-                        "content": json.dumps(result) if isinstance(result, (dict, list)) else str(result),
-                        "name": func_name
+                    try:
+                        if func_name in TOOL_REGISTRY:
+                            result = TOOL_REGISTRY[func_name](**func_args)
+                        else:
+                            result = f"Tool {func_name} not registered."
+
+                    except Exception as e:
+                        result = f"Error executing tool {func_name}: {str(e)}"
+
+                    duration = elapsed_ms(tool_start)
+
+                    return {
+                        "name": func_name,
+                        "result": result,
+                        "duration_ms": duration
+                    }
+
+                with ThreadPoolExecutor() as executor:
+                    results = list(executor.map(run_tool, tool_calls_to_execute))
+
+                for res in results:
+                    tool_calls_metrics.append({
+                        "name": res["name"],
+                        "duration_ms": res["duration_ms"]
                     })
 
-                # Combine original messages, assistant tool request, and tool execution results
-                updated_messages = messages + [assistant_tool_msg] + tool_messages
+                    tool_msg = {
+                        "role": "tool",
+                        "content": (
+                            json.dumps(res["result"])
+                            if isinstance(res["result"], (dict, list))
+                            else str(res["result"])
+                        ),
+                        "name": res["name"]
+                    }
 
-                # Step 3: Run the second completion to get the final text response
-                final_stream = self.ollama.chat(selected_model, updated_messages)
-                for chunk in final_stream:
-                    print(f"[DEBUG] Final Stream Chunk: {chunk}")
-                    message = chunk.get("message", {})
-                    content = message.get("content", "")
-                    if content:
-                        full_response += content
-                        yield content
-
+                    messages.append(tool_msg)
+                
         except Exception as e:
             error_msg = f"Error: {str(e)}"
-            print(f"SERVICE ERROR: {error_msg}")
             yield error_msg
-            full_response = error_msg
+            full_response_chunks.append(error_msg)
+
 
         finally:
-            if full_response.strip():
-                # Save only the final resolved assistant response to DB via SessionService
-                self.session_service.save_message(session_id, "assistant", full_response)
+            final_text = "".join(full_response_chunks)
+
+            if final_text.strip():
+                self.session_service.save_message(
+                    session_id, "assistant", final_text
+                )
+
+            try:
+                finished_at = time.perf_counter()
+
+                save_benchmark({
+                    "timestamp": time.time(),
+                    "session_id": session_id,
+                    "model": selected_model,
+                    "iterations": iterations,
+                    "total_latency_ms": elapsed_ms(
+                        request_start, finished_at
+                    ),
+                    "end_to_end_ttft_ms": (
+                        elapsed_ms(request_start, first_response_token)
+                        if first_response_token is not None
+                        else None
+                    ),
+                    "model_calls": model_calls,
+                    "tool_calls": tool_calls_metrics
+                })
+
+            except Exception:
+                import logging
+                logging.exception("Error while saving benchmark")

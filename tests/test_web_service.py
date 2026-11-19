@@ -9,7 +9,7 @@ from core.web_service import web_service
 def test_search():
     print("\n--- 🔍 TESTING SEARCH ---")
     queries = [
-        "current weather in Rewari",python -c "from ddgs import DDGS; print(list(DDGS().text('Python programming', max_results=5)))"
+        "current weather in Delhi",
         "top tech news today",
         "Python programming"
     ]

@@ -13,7 +13,7 @@ except ImportError:
 def test_google():
     print("\n--- 🔍 TESTING GOOGLE SEARCH ---")
     queries = [
-        "current weather in Rewari",
+        "current weather in Delhi",
         "top tech news today",
         "Python programming"
     ]
